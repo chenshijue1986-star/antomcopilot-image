@@ -1,5 +1,26 @@
-# Use Python 3.11 slim base image from NetEase mirror
-FROM hub-mirror.c.163.com/library/python:3.11-slim
+# Use Ubuntu 22.04 as base and install Python 3.11
+FROM ubuntu:22.04
+
+# Avoid prompts from apt
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Python 3.11 and required packages
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-dev \
+    python3.11-venv \
+    python3-pip \
+    build-essential \
+    curl \
+    libpq-dev \
+    libfreetype6-dev \
+    libpng-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create symlinks for python and pip
+RUN ln -sf /usr/bin/python3.11 /usr/bin/python && \
+    ln -sf /usr/bin/pip3 /usr/bin/pip
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
