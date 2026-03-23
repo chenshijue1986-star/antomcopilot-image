@@ -1,0 +1,31 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: antom-psr-test
+  namespace: default
+spec:
+  template:
+    spec:
+      containers:
+      - name: psr-analyzer
+        image: crpi-fm1vrihlw51dbs66.cn-hangzhou.personal.cr.aliyuncs.com/antomcopilot/antomcopilot-image:latest
+        command: ["send"]
+        args:
+        - "--date"
+        - "20250318"
+        - "--recipient"
+        - "test@example.com"
+        env:
+        - name: PYTHONPATH
+          value: "/app"
+        volumeMounts:
+        - name: antom-config
+          mountPath: /root/antom
+          readOnly: true
+      volumes:
+      - name: antom-config
+        hostPath:
+          path: /Users/chenshijue/antom
+          type: Directory
+      restartPolicy: Never
+  backoffLimit: 2
