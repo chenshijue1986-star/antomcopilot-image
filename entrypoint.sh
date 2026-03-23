@@ -4,82 +4,91 @@
 
 # If no arguments or first arg starts with "--", start HTTP service (AgentScope mode)
 if [ $# -eq 0 ] || [[ "$1" == --* ]] || [ "$1" = "serve" ]; then
-    # Start the original AgentScope sandbox HTTP service
-    # The base image should have a default service, try to start it
-    if [ -f /app/server.py ]; then
-        echo "Starting AgentScope HTTP service..."
-        exec python3 /app/server.py "$@"
-    elif [ -f /app/main.py ]; then
-        echo "Starting AgentScope HTTP service..."
-        exec python3 /app/main.py "$@"
-    elif [ -f /usr/local/bin/agentscope-sandbox ]; then
-        echo "Starting AgentScope sandbox service..."
-        exec /usr/local/bin/agentscope-sandbox "$@"
-    else
-        # Fallback: start a simple HTTP service for health checks
-        echo "Starting fallback HTTP service on port 80..."
-        exec python3 -c "
+    # Start HTTP service for AgentScope
+    echo "Starting AgentScope HTTP service on port 80..."
+    exec python3 -c "
 import http.server
 import socketserver
 import json
 import sys
+import subprocess
+import urllib.parse
 
-class Handler(http.server.BaseHTTPRequestHandler):
+class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/healthz':
+        # Health check endpoint
+        if self.path == '/fastapi/healthz' or self.path == '/healthz':
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({'status': 'healthy'}).encode())
-        elif self.path == '/mcp/list_tools':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            tools = {
-                'tools': [
-                    {
-                        'name': 'antom_psr_fetch',
-                        'description': 'Fetch Antom PSR data for a date range'
-                    },
-                    {
-                        'name': 'antom_psr_analyze',
-                        'description': 'Analyze PSR data for a specific date'
-                    },
-                    {
-                        'name': 'antom_psr_send',
-                        'description': 'Send PSR report to email'
-                    }
-                ]
-            }
-            self.wfile.write(json.dumps(tools).encode())
-        elif self.path == '/mcp/call_tool':
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({'result': 'Tool executed'}).encode())
         else:
-            self.send_response(200)
-            self.send_header('Content-type', 'text/plain')
+            self.send_response(404)
             self.end_headers()
-            self.wfile.write(b'AgentScope PSR Analyzer - OK')
     
     def do_POST(self):
-        if self.path == '/mcp/call_tool':
-            content_length = int(self.headers.get('Content-Length', 0))
-            post_data = self.rfile.read(content_length)
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps({'result': 'Tool executed', 'input': post_data.decode()}).encode())
+        # Tool execution endpoint
+        if self.path == '/fastapi/tools/run_shell_command' or self.path == '/tools/run_shell_command':
+            try:
+                # Read request body
+                content_length = int(self.headers.get('Content-Length', 0))
+                post_data = self.rfile.read(content_length)
+                request_data = json.loads(post_data.decode('utf-8'))
+                
+                print(f'Received tool call: {request_data}', file=sys.stderr)
+                
+                # Extract command from the request
+                # Expected format: {
+                #   "tool_name": "run_shell_command",
+                #   "arguments": {"command": "python3 /app/query_antom_psr_data.py --date 20250323"}
+                # }
+                arguments = request_data.get('arguments', {})
+                command = arguments.get('command', '')
+                
+                if not command:
+                    # Try alternative format: {"cmd": "..."}
+                    command = arguments.get('cmd', '')
+                
+                if command:
+                    print(f'Executing command: {command}', file=sys.stderr)
+                    # Execute the command
+                    result = subprocess.run(command, shell=True, capture_output=True, text=True)
+                    
+                    response = {
+                        'result': result.stdout if result.returncode == 0 else result.stderr,
+                        'returncode': result.returncode,
+                        'success': result.returncode == 0
+                    }
+                else:
+                    response = {
+                        'error': 'No command provided',
+                        'success': False
+                    }
+                
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(response).encode())
+                
+            except Exception as e:
+                print(f'Error processing request: {e}', file=sys.stderr)
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e), 'success': False}).encode())
         else:
             self.send_response(404)
             self.end_headers()
     
     def log_message(self, format, *args):
-        print(format % args)
+        # Custom logging
+        print(f'[HTTP] {format % args}', file=sys.stderr)
 
-with socketserver.TCPServer(('', 80), Handler) as httpd:
+with socketserver.TCPServer(('', 80), AgentScopeHandler) as httpd:
     print('HTTP server listening on port 80')
+    print('Endpoints:')
+    print('  GET  /fastapi/healthz')
+    print('  POST /fastapi/tools/run_shell_command')
     httpd.serve_forever()
 "
     fi
