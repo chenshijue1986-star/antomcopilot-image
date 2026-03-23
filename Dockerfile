@@ -1,5 +1,5 @@
-# Use Python 3.11 slim base image from Aliyun mirror
-FROM registry.cn-hangzhou.aliyuncs.com/library/python:3.11-slim
+# Use Python 3.11 slim base image from NetEase mirror
+FROM hub-mirror.c.163.com/library/python:3.11-slim
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
