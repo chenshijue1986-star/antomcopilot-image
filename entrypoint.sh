@@ -1,6 +1,7 @@
 #!/bin/bash
 # AgentScope PSR Analyzer Entrypoint
 # Supports both HTTP service mode (AgentScope) and CLI mode
+# Build trigger: 2026-03-23 21:45 - ACR rebuild
 
 # If no arguments or first arg starts with "--", start HTTP service (AgentScope mode)
 if [ $# -eq 0 ] || [[ "$1" == --* ]] || [ "$1" = "serve" ]; then
