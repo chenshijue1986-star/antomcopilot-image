@@ -5,11 +5,26 @@
 
 DATE=${1:-$(date +%Y%m%d)}
 RECIPIENT=${2:-"test@example.com"}
+JOB_NAME="antom-psr-test-${DATE}"
 
 echo "🚀 Creating Kubernetes Job to run Antom PSR analysis..."
 echo "📅 Date: $DATE"
 echo "📧 Recipient: $RECIPIENT"
+echo "📝 Job Name: $JOB_NAME"
 echo ""
+
+# Delete existing job if it exists
+echo "🔍 Checking if job already exists..."
+if kubectl get job $JOB_NAME >/dev/null 2>&1; then
+    echo "⚠️  Job $JOB_NAME already exists. Deleting it..."
+    kubectl delete job $JOB_NAME
+    echo "✅ Job deleted successfully"
+    echo "⏳ Waiting 5 seconds for cleanup..."
+    sleep 5
+fi
+
+echo ""
+echo "📦 Creating new job..."
 
 # Create job manifest
 cat <<EOF | kubectl apply -f -
@@ -47,13 +62,19 @@ spec:
 EOF
 
 echo ""
-echo "✅ Job created successfully!"
+if [ $? -eq 0 ]; then
+    echo "✅ Job created successfully!"
+else
+    echo "❌ Failed to create job"
+    exit 1
+fi
+
 echo ""
 echo "📋 To check job status:"
-echo "   kubectl get jobs"
+echo "   kubectl get job $JOB_NAME"
 echo ""
 echo "📄 To view logs:"
-echo "   kubectl logs -f job/antom-psr-test-${DATE}"
+echo "   kubectl logs -f job/$JOB_NAME"
 echo ""
 echo "🗑️ To clean up:"
-echo "   kubectl delete job antom-psr-test-${DATE}"
+echo "   kubectl delete job $JOB_NAME"
