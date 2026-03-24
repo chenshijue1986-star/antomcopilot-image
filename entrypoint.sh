@@ -2,6 +2,7 @@
 # AgentScope PSR Analyzer Entrypoint
 # Supports both HTTP service mode (AgentScope) and CLI mode
 # Build trigger: 2026-03-23 21:45 - ACR rebuild
+# Rebuild: 2026-03-23 22:50 - Fix HTTP endpoint routing
 
 # If no arguments or first arg starts with "--", start HTTP service (AgentScope mode)
 if [ $# -eq 0 ] || [[ "$1" == --* ]] || [ "$1" = "serve" ]; then
@@ -14,29 +15,35 @@ import json
 import sys
 import subprocess
 import urllib.parse
+import traceback
 
 class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         # Health check endpoint
         if self.path == '/fastapi/healthz' or self.path == '/healthz':
+            self.log_message('Health check from %s', self.client_address)
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps({'status': 'healthy'}).encode())
         else:
+            self.log_message('GET %s - 404', self.path)
             self.send_response(404)
             self.end_headers()
+            self.wfile.write(json.dumps({'error': 'Not found'}).encode())
     
     def do_POST(self):
+        self.log_message('POST %s from %s', self.path, self.client_address)
         # Tool execution endpoint
-        if self.path == '/fastapi/tools/run_shell_command' or self.path == '/tools/run_shell_command':
+        if '/tools/run_shell_command' in self.path:
             try:
                 # Read request body
                 content_length = int(self.headers.get('Content-Length', 0))
                 post_data = self.rfile.read(content_length)
-                request_data = json.loads(post_data.decode('utf-8'))
+                self.log_message('Request body: %s', post_data.decode('utf-8'))
                 
-                print(f'Received tool call: {request_data}', file=sys.stderr)
+                request_data = json.loads(post_data.decode('utf-8'))
+                self.log_message('Parsed JSON: %s', request_data)
                 
                 # Extract command from the request
                 # Expected format: {
@@ -47,11 +54,14 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
                 command = arguments.get('command', '')
                 
                 if not command:
-                    # Try alternative format: {"cmd": "..."}
+                    # Try another format or direct command
                     command = arguments.get('cmd', '')
+                    if not command:
+                        command = request_data.get('command', '')
+                
+                self.log_message('Executing command: %s', command)
                 
                 if command:
-                    print(f'Executing command: {command}', file=sys.stderr)
                     # Execute the command
                     result = subprocess.run(command, shell=True, capture_output=True, text=True)
                     
@@ -62,7 +72,7 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
                     }
                 else:
                     response = {
-                        'error': 'No command provided',
+                        'error': 'No command provided in request',
                         'success': False
                     }
                 
@@ -72,24 +82,30 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.write(json.dumps(response).encode())
                 
             except Exception as e:
-                print(f'Error processing request: {e}', file=sys.stderr)
+                self.log_message('Error processing request: %s', traceback.format_exc())
                 self.send_response(500)
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({'error': str(e), 'success': False}).encode())
+                error_msg = f'Error executing command: {str(e)}'
+                self.wfile.write(json.dumps({'error': error_msg, 'success': False}).encode())
         else:
+            self.log_message('POST %s - 404', self.path)
             self.send_response(404)
             self.end_headers()
+            self.wfile.write(json.dumps({'error': 'Not found'}).encode())
     
     def log_message(self, format, *args):
-        # Custom logging
-        print(f'[HTTP] {format % args}', file=sys.stderr)
+        # Custom logging to stderr
+        print(f'[HTTP Server] {format % args}', file=sys.stderr)
 
 with socketserver.TCPServer(('', 80), AgentScopeHandler) as httpd:
     print('HTTP server listening on port 80')
-    print('Endpoints:')
+    print('Available endpoints:')
     print('  GET  /fastapi/healthz')
+    print('  GET  /healthz')
     print('  POST /fastapi/tools/run_shell_command')
+    print('  POST /tools/run_shell_command')
+    sys.stdout.flush()
     httpd.serve_forever()
 "
     fi
