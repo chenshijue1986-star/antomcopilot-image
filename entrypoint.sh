@@ -3,6 +3,7 @@
 # Supports both HTTP service mode (AgentScope) and CLI mode
 # Build trigger: 2026-03-23 21:45 - ACR rebuild
 # Rebuild: 2026-03-23 22:50 - Fix HTTP endpoint routing
+# Rebuild: 2026-03-24 11:05 - Fix endpoint matching logic
 
 # If no arguments or first arg starts with "--", start HTTP service (AgentScope mode)
 if [ $# -eq 0 ] || [[ "$1" == --* ]] || [ "$1" = "serve" ]; then
@@ -34,8 +35,8 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
     
     def do_POST(self):
         self.log_message('POST %s from %s', self.path, self.client_address)
-        # Tool execution endpoint
-        if '/tools/run_shell_command' in self.path:
+        # Tool execution endpoint - match both /tools/run_shell_command and /fastapi/tools/run_shell_command
+        if self.path.endswith('/tools/run_shell_command'):
             try:
                 # Read request body
                 content_length = int(self.headers.get('Content-Length', 0))
