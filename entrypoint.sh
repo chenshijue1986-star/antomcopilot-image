@@ -17,8 +17,15 @@ import json
 import sys
 import subprocess
 import traceback
+import datetime
 
 class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Log with timestamp for debugging
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        sys.stderr.write('[%s] %s\n' % (timestamp, format % args))
+        sys.stderr.flush()
+    
     def do_GET(self):
         if self.path == '/fastapi/healthz' or self.path == '/healthz':
             self.send_response(200)
@@ -45,7 +52,15 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
-            request_data = json.loads(post_data.decode('utf-8'))
+            request_body_str = post_data.decode('utf-8')
+            
+            # Log full request for debugging
+            self.log_message('=== TOOL REQUEST ===')
+            self.log_message('Path: %s', self.path)
+            self.log_message('Headers: %s', dict(self.headers))
+            self.log_message('Body: %s', request_body_str)
+            
+            request_data = json.loads(request_body_str)
             
             arguments = request_data.get('arguments', {})
             command = arguments.get('command', '')
@@ -55,18 +70,28 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
                 if not command:
                     command = request_data.get('command', '')
             
+            self.log_message('Executing command: %s', command)
+            
             if command:
                 result = subprocess.run(command, shell=True, capture_output=True, text=True)
+                self.log_message('Command returncode: %d', result.returncode)
+                self.log_message('Command stdout: %s', result.stdout)
+                self.log_message('Command stderr: %s', result.stderr)
+                
                 response = {
                     'result': result.stdout if result.returncode == 0 else result.stderr,
                     'returncode': result.returncode,
                     'success': result.returncode == 0
                 }
             else:
+                self.log_message('ERROR: No command provided')
                 response = {
                     'error': 'No command provided in request',
                     'success': False
                 }
+            
+            self.log_message('Response: %s', json.dumps(response))
+            self.log_message('=== END REQUEST ===')
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -74,6 +99,8 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response).encode())
             
         except Exception as e:
+            self.log_message('Exception: %s', str(e))
+            self.log_message('Traceback: %s', traceback.format_exc())
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -85,30 +112,51 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get('Content-Length', 0))
             post_data = self.rfile.read(content_length)
-            request_data = json.loads(post_data.decode('utf-8'))
+            request_body_str = post_data.decode('utf-8')
+            
+            # Log full request for debugging
+            self.log_message('=== MCP CALL_TOOL REQUEST ===')
+            self.log_message('Path: %s', self.path)
+            self.log_message('Headers: %s', dict(self.headers))
+            self.log_message('Body: %s', request_body_str)
+            
+            request_data = json.loads(request_body_str)
             
             tool_name = request_data.get('tool_name', '')
             arguments = request_data.get('arguments', {})
             
+            self.log_message('Tool name: %s', tool_name)
+            self.log_message('Arguments: %s', json.dumps(arguments))
+            
             if tool_name == 'run_shell_command':
                 command = arguments.get('command', '')
                 if command:
+                    self.log_message('Executing command: %s', command)
                     result = subprocess.run(command, shell=True, capture_output=True, text=True)
+                    self.log_message('Command returncode: %d', result.returncode)
+                    self.log_message('Command stdout: %s', result.stdout)
+                    self.log_message('Command stderr: %s', result.stderr)
+                    
                     response = {
                         'result': result.stdout if result.returncode == 0 else result.stderr,
                         'returncode': result.returncode,
                         'success': result.returncode == 0
                     }
                 else:
+                    self.log_message('ERROR: No command provided')
                     response = {
                         'error': 'No command provided',
                         'success': False
                     }
             else:
+                self.log_message('ERROR: Unknown tool: %s', tool_name)
                 response = {
                     'error': f'Unknown tool: {tool_name}',
                     'success': False
                 }
+            
+            self.log_message('Response: %s', json.dumps(response))
+            self.log_message('=== END REQUEST ===')
             
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
@@ -116,6 +164,8 @@ class AgentScopeHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response).encode())
             
         except Exception as e:
+            self.log_message('Exception: %s', str(e))
+            self.log_message('Traceback: %s', traceback.format_exc())
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
@@ -147,7 +197,7 @@ else
             ;;
         *)
             echo "Usage: docker run <image> {fetch|analyze|send} [args...]"
-            echo "  fetch --date YYYYMMDD"
+            echo "  fetch --date_range START~END"
             echo "  analyze --date YYYYMMDD"
             echo "  send --date YYYYMMDD --recipient email@example.com"
             exit 1
